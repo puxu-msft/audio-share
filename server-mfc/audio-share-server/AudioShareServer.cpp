@@ -1,4 +1,4 @@
-/*
+﻿/*
    Copyright 2022-2024 mkckr0 <https://github.com/mkckr0>
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -187,25 +187,25 @@ CMainDialog* CAudioShareServerApp::GetMainDialog()
 
 void CAudioShareServerApp::EnsureSingleton()
 {
-    std::thread([this]() {
-        constexpr auto mailSlotName = R"(\\.\mailslot\AudioShareServer\938609DF-0FF0-49C9-83BB-ABB6F391F544)";
-        wil::unique_handle hMailSlot{
-            CreateMailslotA(mailSlotName, 0, MAILSLOT_WAIT_FOREVER, nullptr)
+    constexpr auto mailSlotName = R"(\\.\mailslot\AudioShareServer\938609DF-0FF0-49C9-83BB-ABB6F391F544)";
+    wil::unique_handle hMailSlot{
+        CreateMailslotA(mailSlotName, 0, MAILSLOT_WAIT_FOREVER, nullptr)
+    };
+    if (!hMailSlot.is_valid()) {
+        // mail slot already exits
+        wil::unique_handle hFile{
+            CreateFileA(mailSlotName, GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)
         };
-        if (!hMailSlot.is_valid()) {
-            // mail slot already exits
-            wil::unique_handle hFile{
-                CreateFileA(mailSlotName, GENERIC_WRITE, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)
-            };
-            if (!hFile.is_valid()) {
-                return;
-            }
-            int cmd{ 1 };
-            DWORD bytesWritten{};
-            WriteFile(hFile.get(), &cmd, sizeof(cmd), &bytesWritten, nullptr);
-            ExitProcess(0);
+        if (!hFile.is_valid()) {
+            return;
         }
-        else {
+        int cmd{ 1 };
+        DWORD bytesWritten{};
+        WriteFile(hFile.get(), &cmd, sizeof(cmd), &bytesWritten, nullptr);
+        ExitProcess(0);
+    }
+    else {
+        std::thread([this, hMailSlot = std::move(hMailSlot)] {
             while (true) {
                 int cmd{};
                 DWORD bytesRead{};
@@ -213,7 +213,7 @@ void CAudioShareServerApp::EnsureSingleton()
                 this->GetMainDialog()->SendMessageW(WM_COMMAND, ID_APP_SHOW);
                 TRACE(traceAppMsg, 0, "read loop");
             }
-        }
-    }).detach();
+            }).detach();
+    }
 }
 
