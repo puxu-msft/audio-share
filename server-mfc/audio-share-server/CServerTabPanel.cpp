@@ -9,6 +9,9 @@
 #include "AudioShareServer.h"
 #include "util.hpp"
 
+#include <shellapi.h>
+#include <spdlog/spdlog.h>
+
 // CServerTabPanel dialog
 
 IMPLEMENT_DYNAMIC(CServerTabPanel, CTabPanel)
@@ -280,16 +283,19 @@ void CServerTabPanel::EnableInputControls(bool bEnable)
 
 void CServerTabPanel::OnBnClickedButtonSoundPanel()
 {
-    STARTUPINFO si{};
-    PROCESS_INFORMATION pi{};
+    // Use ShellExecute instead of CreateProcess for safer execution
+    // This avoids the security issue with NULL lpApplicationName in CreateProcess
+    HINSTANCE result = ShellExecuteW(
+        GetSafeHwnd(),
+        L"open",
+        L"control.exe",
+        L"/name Microsoft.Sound",
+        nullptr,
+        SW_SHOWNORMAL
+    );
 
-    LPWSTR lpCommandLine = _wcsdup(L"control.exe /name Microsoft.Sound");
-    auto hr = CreateProcessW(nullptr, lpCommandLine, nullptr, nullptr, false, 0, nullptr, nullptr, &si, &pi);
-    
-    WaitForSingleObject(pi.hProcess, INFINITE);
-
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-
-    free(lpCommandLine);
+    // ShellExecute returns value > 32 on success
+    if ((INT_PTR)result <= 32) {
+        spdlog::error("Failed to open Sound control panel, error code: {}", (INT_PTR)result);
+    }
 }
