@@ -1,0 +1,15 @@
+{
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+    "name": "audio-share-server-mfc",
+    "version-string": "0.3.4",
+    "description": "Audio Share Server - Windows MFC GUI Application",
+    "homepage": "https://github.com/mkckr0/audio-share",
+    "license": "Apache-2.0",
+    "supports": "windows",
+    "dependencies": [
+        "asio",
+        "spdlog",
+        "protobuf",
+        "wil"
+    ]
+}

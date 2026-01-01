@@ -1,0 +1,23 @@
+{
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+    "name": "audio-share-server-core",
+    "version-string": "0.3.4",
+    "description": "Audio Share Server Core - Cross-platform audio streaming server",
+    "homepage": "https://github.com/mkckr0/audio-share",
+    "license": "Apache-2.0",
+    "supports": "windows | linux",
+    "dependencies": [
+        "asio",
+        "spdlog",
+        "protobuf",
+        "cxxopts",
+        {
+            "name": "boost-system",
+            "platform": "windows"
+        },
+        {
+            "name": "boost-beast",
+            "platform": "windows"
+        }
+    ]
+}
