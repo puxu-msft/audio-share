@@ -21,6 +21,18 @@ CServerTabPanel::CServerTabPanel(CWnd* pParent)
 
 CServerTabPanel::~CServerTabPanel()
 {
+    // Clean up dynamically allocated ItemData in ComboBox
+    CleanupComboBoxItemData(m_comboBoxAudioEndpoint);
+}
+
+void CServerTabPanel::CleanupComboBoxItemData(CComboBox& comboBox)
+{
+    for (int nIndex = comboBox.GetCount() - 1; nIndex >= 0; --nIndex) {
+        auto pData = comboBox.GetItemDataPtr(nIndex);
+        if (pData != nullptr && pData != (void*)CB_ERR) {
+            free(pData);
+        }
+    }
 }
 
 void CServerTabPanel::SwitchServer()
@@ -103,9 +115,7 @@ void CServerTabPanel::OnBnClickedButtonReset()
 
     // audio endpoint list
     {
-        for (int nIndex = m_comboBoxAudioEndpoint.GetCount() - 1; nIndex >= 0; --nIndex) {
-            free(m_comboBoxAudioEndpoint.GetItemDataPtr(nIndex));
-        }
+        CleanupComboBoxItemData(m_comboBoxAudioEndpoint);
         m_comboBoxAudioEndpoint.ResetContent();
 
         auto nDefaultIndex = m_comboBoxAudioEndpoint.AddString(defaultString);

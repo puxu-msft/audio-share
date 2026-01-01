@@ -34,6 +34,7 @@ protected:
 	afx_msg void OnBnClickedStartServer();
 	afx_msg void OnBnClickedButtonSoundPanel();
 	void EnableInputControls(bool bEnable = true);
+	void CleanupComboBoxItemData(CComboBox& comboBox);
 
 public:
 	std::shared_ptr<audio_manager> m_audio_manager;
