@@ -287,7 +287,26 @@ class AudioPlayer(val context: Context) : SimpleBasePlayer(Looper.getMainLooper(
 
         override suspend fun onReceiveAudioData(audioData: ByteBuffer) {
 //            Log.d(tag, "${audioData.remaining()}")
-            audioTrack.write(audioData, audioData.remaining(), AudioTrack.WRITE_NON_BLOCKING)
+            val bytesRemaining = audioData.remaining()
+            val bytesWritten = audioTrack.write(audioData, bytesRemaining, AudioTrack.WRITE_NON_BLOCKING)
+            
+            when {
+                bytesWritten < 0 -> {
+                    // Error occurred during write
+                    val errorMessage = when (bytesWritten) {
+                        AudioTrack.ERROR_INVALID_OPERATION -> "AudioTrack not properly initialized"
+                        AudioTrack.ERROR_BAD_VALUE -> "Invalid audio data parameters"
+                        AudioTrack.ERROR_DEAD_OBJECT -> "AudioTrack has died"
+                        AudioTrack.ERROR -> "Unknown AudioTrack error"
+                        else -> "AudioTrack write error: $bytesWritten"
+                    }
+                    Log.e(tag, errorMessage)
+                }
+                bytesWritten < bytesRemaining -> {
+                    // Partial write occurred (buffer full)
+                    Log.d(tag, "AudioTrack buffer full: wrote $bytesWritten of $bytesRemaining bytes")
+                }
+            }
         }
 
         override suspend fun onError(message: String?, cause: Throwable?) {
