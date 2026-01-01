@@ -7,6 +7,7 @@
 #include "audio_manager.hpp"
 #include "network_manager.hpp"
 #include "AudioShareServer.h"
+#include "util.hpp"
 
 // CServerTabPanel dialog
 
@@ -188,8 +189,29 @@ void CServerTabPanel::OnBnClickedStartServer()
         CString host_str, port_str;
         m_comboBoxHost.GetWindowTextW(host_str);
         m_editPort.GetWindowTextW(port_str);
+        
+        // Validate host
         std::string host = wchars_to_mbs(host_str.GetString());
-        std::uint16_t port = std::stoi(wchars_to_mbs(port_str.GetString()));
+        if (host.empty()) {
+            AfxMessageBox(L"Host address cannot be empty", MB_OK | MB_ICONSTOP);
+            EnableInputControls(true);
+            m_buttonServer.EnableWindow(true);
+            m_comboBoxHost.SetFocus();
+            return;
+        }
+
+        // Validate port
+        auto port_result = util::validate_port(port_str.GetString());
+        if (!port_result.is_valid) {
+            AfxMessageBox(port_result.error_message.c_str(), MB_OK | MB_ICONSTOP);
+            EnableInputControls(true);
+            m_buttonServer.EnableWindow(true);
+            m_editPort.SetFocus();
+            m_editPort.SetSel(0, -1);
+            return;
+        }
+        std::uint16_t port = port_result.port;
+
         audio_manager::capture_config config;
         config.endpoint_id = wchars_to_mbs((LPCWSTR)m_comboBoxAudioEndpoint.GetItemDataPtr(m_comboBoxAudioEndpoint.GetCurSel()));
         config.encoding = (audio_manager::encoding_t)m_comboEncoding.GetItemData(m_comboEncoding.GetCurSel());

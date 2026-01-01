@@ -1,8 +1,79 @@
 #include "util.hpp"
 #include <algorithm>
 #include <ranges>
+#include <stdexcept>
+#include <cwctype>
 
 namespace util {
+
+    PortValidationResult validate_port(const std::wstring& port_str)
+    {
+        PortValidationResult result;
+        result.is_valid = false;
+        result.port = 0;
+
+        // Check for empty string
+        if (port_str.empty()) {
+            result.error_message = L"Port number cannot be empty";
+            return result;
+        }
+
+        // Check for whitespace only
+        bool all_whitespace = std::all_of(port_str.begin(), port_str.end(), 
+            [](wchar_t c) { return std::iswspace(c); });
+        if (all_whitespace) {
+            result.error_message = L"Port number cannot be whitespace";
+            return result;
+        }
+
+        // Check for valid characters (digits only, with optional leading/trailing whitespace)
+        std::wstring trimmed;
+        bool started = false;
+        for (wchar_t c : port_str) {
+            if (!started && std::iswspace(c)) continue;
+            started = true;
+            if (std::iswspace(c)) break;
+            if (!std::iswdigit(c)) {
+                result.error_message = L"Port number must contain only digits";
+                return result;
+            }
+            trimmed += c;
+        }
+
+        if (trimmed.empty()) {
+            result.error_message = L"Port number cannot be empty";
+            return result;
+        }
+
+        // Check for leading zeros (except for "0" itself)
+        if (trimmed.length() > 1 && trimmed[0] == L'0') {
+            result.error_message = L"Port number cannot have leading zeros";
+            return result;
+        }
+
+        // Parse the number
+        int port_val;
+        try {
+            port_val = std::stoi(trimmed);
+        } catch (const std::invalid_argument&) {
+            result.error_message = L"Invalid port number format";
+            return result;
+        } catch (const std::out_of_range&) {
+            result.error_message = L"Port number is too large";
+            return result;
+        }
+
+        // Validate range
+        if (port_val < MIN_PORT || port_val > MAX_PORT) {
+            result.error_message = L"Port must be between " + std::to_wstring(MIN_PORT) + 
+                                   L" and " + std::to_wstring(MAX_PORT);
+            return result;
+        }
+
+        result.is_valid = true;
+        result.port = static_cast<uint16_t>(port_val);
+        return result;
+    }
 
     bool is_newer_version(const std::string& lhs, const std::string& rhs)
     {
