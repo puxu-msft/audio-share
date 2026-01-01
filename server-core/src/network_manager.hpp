@@ -21,12 +21,15 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <mutex>
+#include <atomic>
 
 #include "pre_asio.hpp"
 #include <asio.hpp>
 #include <asio/use_awaitable.hpp>
 
 #include "audio_manager.hpp"
+#include "constants.hpp"
 
 class network_manager : public std::enable_shared_from_this<network_manager>
 {
@@ -39,7 +42,20 @@ class network_manager : public std::enable_shared_from_this<network_manager>
     struct peer_info_t {
         int id = 0;
         asio::ip::udp::endpoint udp_peer;
-        std::chrono::steady_clock::time_point last_tick;
+        // Use atomic for thread-safe access to last_tick
+        std::atomic<std::chrono::steady_clock::time_point> last_tick{std::chrono::steady_clock::now()};
+        
+        peer_info_t() = default;
+        peer_info_t(const peer_info_t& other) 
+            : id(other.id), udp_peer(other.udp_peer), last_tick(other.last_tick.load()) {}
+        peer_info_t& operator=(const peer_info_t& other) {
+            if (this != &other) {
+                id = other.id;
+                udp_peer = other.udp_peer;
+                last_tick.store(other.last_tick.load());
+            }
+            return *this;
+        }
     };
 
     using playing_peer_list_t = std::map<std::shared_ptr<tcp_socket>, std::shared_ptr<peer_info_t>>;
@@ -87,7 +103,8 @@ private:
     std::thread _net_thread;
     std::unique_ptr<udp_socket> _udp_server;
     playing_peer_list_t _playing_peer_list;
-    constexpr static auto _heartbeat_timeout = std::chrono::seconds(5);
+    mutable std::mutex _peer_list_mutex;  // Protects _playing_peer_list
+    constexpr static auto _heartbeat_timeout = audio_share::constants::HEARTBEAT_TIMEOUT;
 };
 
 #endif // !NETWORK_MANAGER_HPP

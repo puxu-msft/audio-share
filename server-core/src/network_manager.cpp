@@ -271,9 +271,10 @@ asio::awaitable<void> network_manager::read_loop(std::shared_ptr<tcp_socket> pee
             }
             asio::co_spawn(*_ioc, heartbeat_loop(peer), asio::detached);
         } else if (cmd == cmd_t::cmd_heartbeat) {
+            std::lock_guard<std::mutex> lock(_peer_list_mutex);
             auto it = _playing_peer_list.find(peer);
             if (it != _playing_peer_list.end()) {
-                it->second->last_tick = std::chrono::steady_clock::now();
+                it->second->last_tick.store(std::chrono::steady_clock::now());
             }
         } else {
             spdlog::error("{} error cmd", __func__);
@@ -291,7 +292,7 @@ asio::awaitable<void> network_manager::heartbeat_loop(std::shared_ptr<tcp_socket
 
     steady_timer timer(*_ioc);
     while (true) {
-        timer.expires_after(3s);
+        timer.expires_after(HEARTBEAT_INTERVAL);
         std::tie(ec) = co_await timer.async_wait();
         if (ec) {
             break;
@@ -301,14 +302,22 @@ asio::awaitable<void> network_manager::heartbeat_loop(std::shared_ptr<tcp_socket
             break;
         }
 
-        auto it = _playing_peer_list.find(peer);
-        if (it == _playing_peer_list.end()) {
-            spdlog::trace("{} it == _playing_peer_list.end()", __func__);
-            close_session(peer);
-            break;
+        // Check peer status with thread-safe access
+        bool should_close = false;
+        bool peer_not_found = false;
+        {
+            std::lock_guard<std::mutex> lock(_peer_list_mutex);
+            auto it = _playing_peer_list.find(peer);
+            if (it == _playing_peer_list.end()) {
+                spdlog::trace("{} it == _playing_peer_list.end()", __func__);
+                peer_not_found = true;
+            } else if (std::chrono::steady_clock::now() - it->second->last_tick.load() > _heartbeat_timeout) {
+                spdlog::info("{} timeout", it->first->remote_endpoint());
+                should_close = true;
+            }
         }
-        if (std::chrono::steady_clock::now() - it->second->last_tick > _heartbeat_timeout) {
-            spdlog::info("{} timeout", it->first->remote_endpoint());
+
+        if (peer_not_found || should_close) {
             close_session(peer);
             break;
         }
@@ -372,6 +381,7 @@ auto network_manager::close_session(std::shared_ptr<tcp_socket>& peer) -> playin
 
 int network_manager::add_playing_peer(std::shared_ptr<tcp_socket>& peer)
 {
+    std::lock_guard<std::mutex> lock(_peer_list_mutex);
     if (_playing_peer_list.contains(peer)) {
         spdlog::error("{} repeat add tcp://{}", __func__, peer->remote_endpoint());
         return 0;
@@ -380,7 +390,7 @@ int network_manager::add_playing_peer(std::shared_ptr<tcp_socket>& peer)
     auto info = _playing_peer_list[peer] = std::make_shared<peer_info_t>();
     static int g_id = 0;
     info->id = ++g_id;
-    info->last_tick = std::chrono::steady_clock::now();
+    info->last_tick.store(std::chrono::steady_clock::now());
 
     spdlog::trace("{} add id:{} tcp://{}", __func__, info->id, peer->remote_endpoint());
     return info->id;
@@ -388,6 +398,7 @@ int network_manager::add_playing_peer(std::shared_ptr<tcp_socket>& peer)
 
 auto network_manager::remove_playing_peer(std::shared_ptr<tcp_socket>& peer) -> playing_peer_list_t::iterator
 {
+    std::lock_guard<std::mutex> lock(_peer_list_mutex);
     auto it = _playing_peer_list.find(peer);
     if (it == _playing_peer_list.end()) {
         spdlog::error("{} repeat remove tcp://{}", __func__, peer->remote_endpoint());
@@ -401,6 +412,7 @@ auto network_manager::remove_playing_peer(std::shared_ptr<tcp_socket>& peer) -> 
 
 void network_manager::fill_udp_peer(int id, asio::ip::udp::endpoint udp_peer)
 {
+    std::lock_guard<std::mutex> lock(_peer_list_mutex);
     auto it = std::find_if(_playing_peer_list.begin(), _playing_peer_list.end(), [id](const playing_peer_list_t::value_type& e) {
         return e.second->id == id;
     });
@@ -435,10 +447,20 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
         begin_pos += real_seg_size;
     }
 
-    _ioc->post([seg_list = std::move(seg_list), self = shared_from_this()] {
+    // Create a thread-safe copy of UDP endpoints
+    std::vector<asio::ip::udp::endpoint> udp_peers;
+    {
+        std::lock_guard<std::mutex> lock(_peer_list_mutex);
+        udp_peers.reserve(_playing_peer_list.size());
+        for (const auto& [peer, info] : _playing_peer_list) {
+            udp_peers.push_back(info->udp_peer);
+        }
+    }
+
+    _ioc->post([seg_list = std::move(seg_list), udp_peers = std::move(udp_peers), self = shared_from_this()] {
         for (const auto& seg : seg_list) {
-            for (auto& [peer, info] : self->_playing_peer_list) {
-                self->_udp_server->async_send_to(asio::buffer(*seg), info->udp_peer, [seg](const asio::error_code& ec, std::size_t bytes_transferred) { });
+            for (const auto& udp_peer : udp_peers) {
+                self->_udp_server->async_send_to(asio::buffer(*seg), udp_peer, [seg](const asio::error_code& ec, std::size_t bytes_transferred) { });
             }
         }
     });
