@@ -1,12 +1,16 @@
 #include "config.h"
 #include "audio_manager.hpp"
 #include "network_manager.hpp"
+#include "constants.hpp"
 
 #include <cxxopts.hpp>
 #include <iostream>
 #include <spdlog/spdlog.h>
+#include <stdexcept>
+#include <limits>
 
 using string = std::string;
+using namespace audio_share::constants;
 
 int main(int argc, char* argv[])
 {
@@ -86,9 +90,43 @@ int main(int argc, char* argv[])
             string host = s.substr(0, pos);
             uint16_t port;
             if (pos == string::npos) {
-                port = 65530;
+                port = DEFAULT_PORT;
             } else {
-                port = (uint16_t)std::stoi(s.substr(pos + 1));
+                string port_str = s.substr(pos + 1);
+                if (port_str.empty()) {
+                    spdlog::error("Port number cannot be empty");
+                    return EXIT_FAILURE;
+                }
+                
+                int port_val;
+                try {
+                    size_t parsed_chars = 0;
+                    port_val = std::stoi(port_str, &parsed_chars);
+                    if (parsed_chars != port_str.size()) {
+                        spdlog::error("Invalid port number format: '{}'", port_str);
+                        return EXIT_FAILURE;
+                    }
+                } catch (const std::invalid_argument&) {
+                    spdlog::error("Invalid port number: '{}'", port_str);
+                    return EXIT_FAILURE;
+                } catch (const std::out_of_range&) {
+                    spdlog::error("Port number out of range: '{}'", port_str);
+                    return EXIT_FAILURE;
+                }
+                
+                if (port_val < MIN_PORT || port_val > MAX_PORT) {
+                    spdlog::error("Port must be between {} and {}, got {}", MIN_PORT, MAX_PORT, port_val);
+                    return EXIT_FAILURE;
+                }
+                port = static_cast<uint16_t>(port_val);
+            }
+
+            if (host.empty()) {
+                host = network_manager::get_default_address();
+                if (host.empty()) {
+                    spdlog::error("No valid network address found. Please specify a host address.");
+                    return EXIT_FAILURE;
+                }
             }
 
             auto audio_manager = std::make_shared<class audio_manager>();
