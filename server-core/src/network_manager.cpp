@@ -17,10 +17,12 @@
 #include "network_manager.hpp"
 #include "formatter.hpp"
 #include "audio_manager.hpp"
+#include "constants.hpp"
 
 #include <list>
 #include <ranges>
 #include <coroutine>
+#include <memory>
 
 #ifdef _WINDOWS
 #include <iphlpapi.h>
@@ -40,6 +42,7 @@
 
 namespace ip = asio::ip;
 using namespace std::chrono_literals;
+using namespace audio_share::constants;
 
 network_manager::network_manager(std::shared_ptr<audio_manager>& audio_manager)
     : _audio_manager(audio_manager)
@@ -54,37 +57,57 @@ std::vector<std::string> network_manager::get_address_list()
     ULONG family = AF_INET;
     ULONG flags = GAA_FLAG_INCLUDE_ALL_INTERFACES;
 
+    // First call to get required buffer size
     ULONG size = 0;
-    GetAdaptersAddresses(family, flags, nullptr, nullptr, &size);
-    auto pAddresses = (PIP_ADAPTER_ADDRESSES)malloc(size);
-
-    auto ret = GetAdaptersAddresses(family, flags, nullptr, pAddresses, &size);
-    if (ret == ERROR_SUCCESS) {
-        for (auto pCurrentAddress = pAddresses; pCurrentAddress; pCurrentAddress = pCurrentAddress->Next) {
-            if (pCurrentAddress->OperStatus != IfOperStatusUp || pCurrentAddress->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
-                continue;
-            }
-
-            for (auto pUnicast = pCurrentAddress->FirstUnicastAddress; pUnicast; pUnicast = pUnicast->Next) {
-                auto sockaddr = (sockaddr_in*)pUnicast->Address.lpSockaddr;
-                char buf[50];
-                if (inet_ntop(AF_INET, &sockaddr->sin_addr, buf, sizeof(buf))) {
-                    address_list.emplace_back(buf);
-                }
-            }
-        }
-    }
-
-    free(pAddresses);
-#endif
-
-#ifdef linux
-    struct ifaddrs* ifaddrs;
-    if (getifaddrs(&ifaddrs) == -1) {
+    ULONG ret = GetAdaptersAddresses(family, flags, nullptr, nullptr, &size);
+    if (ret != ERROR_BUFFER_OVERFLOW) {
+        spdlog::warn("GetAdaptersAddresses failed to get buffer size, error: {}", ret);
         return address_list;
     }
 
-    for (auto ifa = ifaddrs; ifa; ifa = ifa->ifa_next) {
+    // RAII wrapper for adapter addresses memory
+    auto addresses_deleter = [](IP_ADAPTER_ADDRESSES* p) { free(p); };
+    std::unique_ptr<IP_ADAPTER_ADDRESSES, decltype(addresses_deleter)> pAddresses(
+        static_cast<PIP_ADAPTER_ADDRESSES>(malloc(size)), addresses_deleter);
+    
+    if (!pAddresses) {
+        spdlog::error("Failed to allocate memory for adapter addresses");
+        return address_list;
+    }
+
+    ret = GetAdaptersAddresses(family, flags, nullptr, pAddresses.get(), &size);
+    if (ret != ERROR_SUCCESS) {
+        spdlog::warn("GetAdaptersAddresses failed, error: {}", ret);
+        return address_list;
+    }
+
+    for (auto pCurrentAddress = pAddresses.get(); pCurrentAddress; pCurrentAddress = pCurrentAddress->Next) {
+        if (pCurrentAddress->OperStatus != IfOperStatusUp || pCurrentAddress->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
+            continue;
+        }
+
+        for (auto pUnicast = pCurrentAddress->FirstUnicastAddress; pUnicast; pUnicast = pUnicast->Next) {
+            auto sockaddr = reinterpret_cast<sockaddr_in*>(pUnicast->Address.lpSockaddr);
+            char buf[INET_ADDRSTRLEN];
+            if (inet_ntop(AF_INET, &sockaddr->sin_addr, buf, sizeof(buf))) {
+                address_list.emplace_back(buf);
+            }
+        }
+    }
+#endif
+
+#ifdef linux
+    struct ifaddrs* ifaddrs_raw = nullptr;
+    if (getifaddrs(&ifaddrs_raw) == -1) {
+        spdlog::warn("getifaddrs failed");
+        return address_list;
+    }
+
+    // RAII wrapper for ifaddrs
+    auto ifaddrs_deleter = [](struct ifaddrs* p) { freeifaddrs(p); };
+    std::unique_ptr<struct ifaddrs, decltype(ifaddrs_deleter)> ifaddrs(ifaddrs_raw, ifaddrs_deleter);
+
+    for (auto ifa = ifaddrs.get(); ifa; ifa = ifa->ifa_next) {
         if (!ifa->ifa_addr) {
             continue;
         }
@@ -94,14 +117,12 @@ std::vector<std::string> network_manager::get_address_list()
         if (ifa->ifa_flags & IFF_LOOPBACK) {
             continue;
         }
-        auto sockaddr = (sockaddr_in*)ifa->ifa_addr;
-        char buf[50];
+        auto sockaddr = reinterpret_cast<sockaddr_in*>(ifa->ifa_addr);
+        char buf[INET_ADDRSTRLEN];
         if (inet_ntop(AF_INET, &sockaddr->sin_addr, buf, sizeof(buf))) {
             address_list.emplace_back(buf);
         }
     }
-
-    freeifaddrs(ifaddrs);
 #endif
 
     return address_list;
@@ -400,9 +421,8 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
     }
     // spdlog::trace("broadcast_audio_data count: {}", count);
 
-    // divide udp frame
-    constexpr int mtu = 1492;
-    int max_seg_size = mtu - 20 - 8;
+    // divide udp frame using constants
+    int max_seg_size = MAX_UDP_PAYLOAD_SIZE;
     max_seg_size -= max_seg_size % block_align; // one single sample can't be divided
 
     std::list<std::shared_ptr<std::vector<uint8_t>>> seg_list;
