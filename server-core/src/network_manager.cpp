@@ -23,6 +23,7 @@
 #include <ranges>
 #include <coroutine>
 #include <memory>
+#include <set>
 
 #ifdef _WINDOWS
 #include <iphlpapi.h>
@@ -423,6 +424,19 @@ void network_manager::fill_udp_peer(int id, asio::ip::udp::endpoint udp_peer)
         return;
     }
 
+    // Handle IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
+    // If the UDP server is IPv4 but client sends from IPv6-mapped address, extract the IPv4 part
+    auto address = udp_peer.address();
+    if (address.is_v6()) {
+        auto v6_addr = address.to_v6();
+        if (v6_addr.is_v4_mapped()) {
+            // Convert IPv4-mapped IPv6 address to IPv4
+            auto v4_addr = asio::ip::make_address_v4(asio::ip::v4_mapped, v6_addr);
+            udp_peer = ip::udp::endpoint(v4_addr, udp_peer.port());
+            spdlog::debug("{} converted IPv4-mapped IPv6 to IPv4: {}", __func__, udp_peer);
+        }
+    }
+
     it->second->udp_peer = udp_peer;
     spdlog::info("{} fill udp peer id:{} tcp://{} udp://{}", __func__, id, it->first->remote_endpoint(), udp_peer);
 }
@@ -452,19 +466,39 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
     }
 
     // Create a thread-safe copy of UDP endpoints
+    // Filter out endpoints with incompatible address families
     std::vector<asio::ip::udp::endpoint> udp_peers;
     {
         std::lock_guard<std::mutex> lock(_peer_list_mutex);
         udp_peers.reserve(_playing_peer_list.size());
+        bool is_server_v4 = _udp_server->local_endpoint().address().is_v4();
         for (const auto& [peer, info] : _playing_peer_list) {
-            udp_peers.push_back(info->udp_peer);
+            const auto& udp_ep = info->udp_peer;
+            // Check address family compatibility
+            if ((is_server_v4 && udp_ep.address().is_v4()) ||
+                (!is_server_v4 && udp_ep.address().is_v6())) {
+                udp_peers.push_back(udp_ep);
+            } else {
+                // Log mismatch only once per session (avoid spamming)
+                static std::set<int> logged_ids;
+                if (logged_ids.find(info->id) == logged_ids.end()) {
+                    spdlog::warn("Address family mismatch for peer id:{} - server is {}, client UDP is {}",
+                        info->id, is_server_v4 ? "IPv4" : "IPv6", 
+                        udp_ep.address().is_v4() ? "IPv4" : "IPv6");
+                    logged_ids.insert(info->id);
+                }
+            }
         }
     }
 
     _ioc->post([seg_list = std::move(seg_list), udp_peers = std::move(udp_peers), self = shared_from_this()] {
         for (const auto& seg : seg_list) {
             for (const auto& udp_peer : udp_peers) {
-                self->_udp_server->async_send_to(asio::buffer(*seg), udp_peer, [seg](const asio::error_code& ec, std::size_t bytes_transferred) { });
+                self->_udp_server->async_send_to(asio::buffer(*seg), udp_peer, [seg](const asio::error_code& ec, std::size_t bytes_transferred) { 
+                    if (ec) {
+                        spdlog::trace("UDP send error: {}", ec.message());
+                    }
+                });
             }
         }
     });

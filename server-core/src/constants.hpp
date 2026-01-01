@@ -30,9 +30,12 @@ namespace constants {
     
     // MTU and packet size
     constexpr int DEFAULT_MTU = 1492;
-    constexpr int IP_HEADER_SIZE = 20;
+    constexpr int IPV4_HEADER_SIZE = 20;
+    constexpr int IPV6_HEADER_SIZE = 40;
     constexpr int UDP_HEADER_SIZE = 8;
-    constexpr int MAX_UDP_PAYLOAD_SIZE = DEFAULT_MTU - IP_HEADER_SIZE - UDP_HEADER_SIZE;
+    
+    // Use the smaller payload size (IPv6) to ensure compatibility with both protocols
+    constexpr int MAX_UDP_PAYLOAD_SIZE = DEFAULT_MTU - IPV6_HEADER_SIZE - UDP_HEADER_SIZE;
     
     // Heartbeat timing
     constexpr auto HEARTBEAT_INTERVAL = std::chrono::seconds(3);

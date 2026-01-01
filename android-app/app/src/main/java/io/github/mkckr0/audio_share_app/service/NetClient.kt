@@ -158,6 +158,10 @@ class NetClient(val context: Context) {
                 onPlaybackStarted()
             }
 
+            // Get the resolved server address from TCP connection to ensure address family consistency
+            // This is critical for IPv6 compatibility - UDP must use same address family as TCP
+            val serverAddress = tcpSocket.remoteAddress
+
 //            _udpSocket = aSocket(selectorManager).udp()
 //                .connect(InetSocketAddress(host, port))
             _udpSocket = aSocket(selectorManager).udp()
@@ -187,7 +191,9 @@ class NetClient(val context: Context) {
 
             // audio data read loop
             scope.launch {
-                udpSocket.writeIntLE(id, InetSocketAddress(host, port))
+                // Use the resolved server address from TCP connection for UDP
+                // This ensures UDP uses the same address family (IPv4/IPv6) as TCP
+                udpSocket.writeIntLE(id, serverAddress)
 //                udpSocket.writeIntLE(id)
                 while (true) {
                     val buf = udpSocket.readByteBuffer()
