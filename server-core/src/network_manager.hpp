@@ -28,6 +28,8 @@
 #include <asio.hpp>
 #include <asio/use_awaitable.hpp>
 
+#include "buffer_pool.hpp"
+
 #include "audio_manager.hpp"
 #include "constants.hpp"
 
@@ -105,6 +107,7 @@ private:
     playing_peer_list_t _playing_peer_list;
     mutable std::mutex _peer_list_mutex;  // Protects _playing_peer_list
     constexpr static auto _heartbeat_timeout = audio_share::constants::HEARTBEAT_TIMEOUT;
+    std::unique_ptr<audio_share::buffer_pool> _buffer_pool;  // Buffer pool for UDP packets
 };
 
 #endif // !NETWORK_MANAGER_HPP

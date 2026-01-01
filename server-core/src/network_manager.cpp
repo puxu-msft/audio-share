@@ -46,6 +46,7 @@ using namespace audio_share::constants;
 
 network_manager::network_manager(std::shared_ptr<audio_manager>& audio_manager)
     : _audio_manager(audio_manager)
+    , _buffer_pool(std::make_unique<audio_share::buffer_pool>(MAX_UDP_PAYLOAD_SIZE, 16, 128))
 {
 }
 
@@ -437,13 +438,16 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
     int max_seg_size = MAX_UDP_PAYLOAD_SIZE;
     max_seg_size -= max_seg_size % block_align; // one single sample can't be divided
 
-    std::list<std::shared_ptr<std::vector<uint8_t>>> seg_list;
+    // Use buffer pool for reduced allocation overhead
+    std::vector<audio_share::buffer_pool::buffer_ptr> seg_list;
+    seg_list.reserve((count + max_seg_size - 1) / max_seg_size);
 
-    for (int begin_pos = 0; begin_pos < count;) {
-        const int real_seg_size = std::min((int)count - begin_pos, max_seg_size);
-        auto seg = std::make_shared<std::vector<uint8_t>>(real_seg_size);
+    for (size_t begin_pos = 0; begin_pos < count;) {
+        const size_t real_seg_size = std::min(count - begin_pos, static_cast<size_t>(max_seg_size));
+        auto seg = _buffer_pool->acquire();
+        seg->resize(real_seg_size);
         std::copy((const uint8_t*)data + begin_pos, (const uint8_t*)data + begin_pos + real_seg_size, seg->begin());
-        seg_list.push_back(seg);
+        seg_list.push_back(std::move(seg));
         begin_pos += real_seg_size;
     }
 
