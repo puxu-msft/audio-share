@@ -23,6 +23,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <stdexcept>
 #include <vector>
 
 #include <pipewire/pipewire.h>
@@ -157,12 +158,14 @@ void audio_manager::do_loopback_recording(std::shared_ptr<network_manager> netwo
         std::shared_ptr<class network_manager> network_manager;
         std::shared_ptr<AudioFormat> format;
         int block_align;
+        bool format_error;  // Flag to indicate unsupported audio format
     } user_data = {
         .loop = _loop,
         .stream = nullptr,
         .network_manager = network_manager,
         .format = _format,
         .block_align = 0,
+        .format_error = false,
     };
 
     static const struct pw_stream_events stream_events = {
@@ -245,8 +248,10 @@ void audio_manager::do_loopback_recording(std::shared_ptr<network_manager> netwo
                     break;
                 default:
                     user_data->format->set_encoding(AudioFormat_Encoding_ENCODING_INVALID);
-                    spdlog::info("the capture format is not supported");
-                    exit(EXIT_FAILURE);
+                    spdlog::error("the capture format is not supported: {}", (int)audio_info.info.raw.format);
+                    user_data->format_error = true;
+                    pw_main_loop_quit(user_data->loop);
+                    return;
                 }
                 spdlog::info("the capture format is supported");
                 user_data->format->set_channels((int)audio_info.info.raw.channels);
@@ -345,6 +350,11 @@ void audio_manager::do_loopback_recording(std::shared_ptr<network_manager> netwo
     pw_main_loop_run(_loop);
 
     pw_stream_destroy(user_data.stream);
+
+    // Check for format error after stream processing
+    if (user_data.format_error) {
+        throw std::runtime_error("Unsupported audio capture format");
+    }
 }
 
 audio_manager::endpoint_list_t audio_manager::get_endpoint_list()
