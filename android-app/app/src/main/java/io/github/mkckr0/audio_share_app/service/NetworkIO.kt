@@ -16,6 +16,7 @@
 
 package io.github.mkckr0.audio_share_app.service
 
+import io.github.mkckr0.audio_share_app.model.ProtocolConstants
 import io.github.mkckr0.audio_share_app.pb.Client.AudioFormat
 import io.github.mkckr0.audio_share_app.service.NetClient.CMD
 import io.ktor.network.sockets.BoundDatagramSocket
@@ -36,6 +37,18 @@ import kotlinx.io.readIntLe
 import kotlinx.io.writeIntLe
 import java.nio.ByteBuffer
 
+/**
+ * Exception thrown when an invalid protocol command is received
+ */
+class InvalidCommandException(val cmdIndex: Int) : 
+    Exception("Invalid command index: $cmdIndex. Valid range: 0-${CMD.entries.size - 1}")
+
+/**
+ * Exception thrown when the audio format message size is invalid
+ */
+class InvalidAudioFormatSizeException(val size: Int) : 
+    Exception("Invalid audio format size: $size. Maximum allowed: ${ProtocolConstants.MAX_AUDIO_FORMAT_SIZE}")
+
 suspend fun ByteWriteChannel.writeCMD(cmd: CMD) {
     writePacket(Buffer().apply {
         writeIntLe(cmd.ordinal)
@@ -51,12 +64,36 @@ suspend fun ByteReadChannel.readIntLE(): Int {
     return readPacket(Int.SIZE_BYTES).readIntLe()
 }
 
+/**
+ * Read and validate a command from the channel.
+ * @throws InvalidCommandException if the command index is out of valid range
+ */
 suspend fun ByteReadChannel.readCMD(): CMD {
-    return CMD.entries[readIntLE()]
+    val cmdIndex = readIntLE()
+    if (cmdIndex < 0 || cmdIndex >= CMD.entries.size) {
+        throw InvalidCommandException(cmdIndex)
+    }
+    return CMD.entries[cmdIndex]
 }
 
-suspend fun ByteReadChannel.readAudioFormat(): AudioFormat? {
+/**
+ * Read and parse an AudioFormat message from the channel.
+ * @throws InvalidAudioFormatSizeException if the size exceeds the maximum allowed
+ */
+suspend fun ByteReadChannel.readAudioFormat(): AudioFormat {
     val size = readIntLE()
+    
+    // Validate size to prevent OOM attacks
+    if (size < 0) {
+        throw InvalidAudioFormatSizeException(size)
+    }
+    if (size > ProtocolConstants.MAX_AUDIO_FORMAT_SIZE) {
+        throw InvalidAudioFormatSizeException(size)
+    }
+    if (size == 0) {
+        throw InvalidAudioFormatSizeException(size)
+    }
+    
     return AudioFormat.parseFrom(readByteBuffer(size))
 }
 

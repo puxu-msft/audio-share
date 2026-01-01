@@ -19,6 +19,7 @@ package io.github.mkckr0.audio_share_app.service
 import android.content.Context
 import android.util.Log
 import io.github.mkckr0.audio_share_app.R
+import io.github.mkckr0.audio_share_app.model.ProtocolConstants
 import io.github.mkckr0.audio_share_app.pb.Client.AudioFormat
 import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.BoundDatagramSocket
@@ -44,7 +45,6 @@ import kotlinx.coroutines.withTimeout
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.UnresolvedAddressException
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 class NetClient(val context: Context) {
@@ -112,7 +112,7 @@ class NetClient(val context: Context) {
             _selectorManager = SelectorManager(Dispatchers.IO)
 
             try {
-                _tcpSocket = withTimeout(3.seconds) {
+                _tcpSocket = withTimeout(ProtocolConstants.CONNECTION_TIMEOUT) {
                     aSocket(selectorManager).tcp().connect(host, port)
                 }
             } catch (e: TimeoutCancellationException) {
@@ -132,9 +132,9 @@ class NetClient(val context: Context) {
             tcpWriteChannel.writeCMD(CMD.CMD_GET_FORMAT)
             var cmd = tcpReadChannel.readCMD()
             if (cmd != CMD.CMD_GET_FORMAT) {
-                return@launch
+                throw Exception("Unexpected response: expected CMD_GET_FORMAT, got $cmd")
             }
-            val audioFormat = tcpReadChannel.readAudioFormat() ?: return@launch
+            val audioFormat = tcpReadChannel.readAudioFormat()
             _callback?.launch {
                 onReceiveAudioFormat(audioFormat)
             }?.join()   // wait AudioTrack created
@@ -147,11 +147,11 @@ class NetClient(val context: Context) {
             tcpWriteChannel.writeCMD(CMD.CMD_START_PLAY)
             cmd = tcpReadChannel.readCMD()
             if (cmd != CMD.CMD_START_PLAY) {
-                return@launch
+                throw Exception("Unexpected response: expected CMD_START_PLAY, got $cmd")
             }
             val id = tcpReadChannel.readIntLE()
             if (id <= 0) {
-                return@launch
+                throw Exception("Invalid session id: $id")
             }
 
             _callback?.launch {
@@ -168,10 +168,10 @@ class NetClient(val context: Context) {
                 _heartbeatLastTick = TimeSource.Monotonic.markNow()
                 while (true) {
                     Log.d(tag, "check heartbeat")
-                    if (TimeSource.Monotonic.markNow() - _heartbeatLastTick > 5.seconds) {
+                    if (TimeSource.Monotonic.markNow() - _heartbeatLastTick > ProtocolConstants.HEARTBEAT_TIMEOUT) {
                         throw Exception("heartbeat timeout")
                     }
-                    delay(3.seconds)
+                    delay(ProtocolConstants.HEARTBEAT_INTERVAL)
                 }
             }
             scope.launch {

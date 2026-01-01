@@ -18,6 +18,7 @@ package io.github.mkckr0.audio_share_app.model
 
 import android.annotation.SuppressLint
 import android.app.NotificationManager
+import kotlin.time.Duration.Companion.seconds
 
 enum class WorkName(val value: String)
 {
@@ -32,4 +33,30 @@ enum class Channel(val id: String, val title: String, val importance: Int) {
 
 enum class Notification(val id: Int) {
     UPDATE(1)
+}
+
+/**
+ * Network protocol constants
+ */
+object ProtocolConstants {
+    /** Default server port */
+    const val DEFAULT_PORT = 65530
+    
+    /** Minimum valid port number */
+    const val MIN_PORT = 1
+    
+    /** Maximum valid port number */
+    const val MAX_PORT = 65535
+    
+    /** Maximum size of AudioFormat protobuf message in bytes */
+    const val MAX_AUDIO_FORMAT_SIZE = 1024
+    
+    /** TCP connection timeout */
+    val CONNECTION_TIMEOUT = 3.seconds
+    
+    /** Heartbeat interval */
+    val HEARTBEAT_INTERVAL = 3.seconds
+    
+    /** Heartbeat timeout */
+    val HEARTBEAT_TIMEOUT = 5.seconds
 }
