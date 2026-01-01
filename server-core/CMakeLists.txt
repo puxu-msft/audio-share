@@ -35,6 +35,7 @@ set(
 	lib_src_list
 	"src/network_manager.cpp"
 	"src/audio_manager.cpp"
+	"src/websocket_manager.cpp"
 	"src/${PLATFORM_NAME}/audio_manager_impl.cpp"
 	${PROTO_SRCS}
 )
@@ -51,7 +52,8 @@ endif()
 find_package(asio CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(cxxopts CONFIG REQUIRED)
-target_link_libraries(server-cmd PRIVATE asio::asio spdlog::spdlog protobuf::libprotobuf cxxopts::cxxopts)
+find_package(Boost REQUIRED COMPONENTS system)
+target_link_libraries(server-cmd PRIVATE asio::asio spdlog::spdlog protobuf::libprotobuf cxxopts::cxxopts Boost::system)
 
 if(${PLATFORM_NAME} STREQUAL "linux")
 	find_package(PkgConfig REQUIRED)

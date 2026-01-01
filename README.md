@@ -69,6 +69,29 @@ Audio Share can share Windows/Linux computer's audio to Android phone over netwo
 - Install APK to your phone and open it. Modify the "Host" part to make sure it's same as the value of previous step, such as `192.168.xxx.xxx`. Click "▶" button and enjoy the audio🎶.
 
 
+## Usage for Web Browser Client
+Audio Share also supports web browsers as clients through WebSocket.
+
+### Running Web Client
+- Ensure the server (as-cmd or AudioShareServer.exe) is running. The WebSocket server runs on port 65531 by default (main port + 1).
+- Navigate to the `web-client` directory and run:
+  ```bash
+  npm install
+  npm run dev
+  ```
+- Open `http://localhost:3000` in your browser.
+- Enter the server address (e.g., `192.168.xxx.xxx:65531`) and click "Connect".
+- The audio will start playing through your browser.
+
+### Building Web Client for Production
+```bash
+cd web-client
+npm install
+npm run build
+```
+The built files will be in `web-client/dist/` directory.
+
+
 ## Configure Firewall Rules on Linux
 ### Add rules
 ```sh

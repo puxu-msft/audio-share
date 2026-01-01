@@ -448,6 +448,16 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
     }
     // spdlog::trace("broadcast_audio_data count: {}", count);
 
+    // Forward to additional broadcasters (e.g., WebSocket)
+    {
+        std::lock_guard<std::mutex> lock(_broadcasters_mutex);
+        for (const auto& broadcaster : _additional_broadcasters) {
+            if (broadcaster) {
+                broadcaster->broadcast_audio_data(data, count, block_align);
+            }
+        }
+    }
+
     // divide udp frame using constants
     int max_seg_size = MAX_UDP_PAYLOAD_SIZE;
     max_seg_size -= max_seg_size % block_align; // one single sample can't be divided
@@ -502,4 +512,11 @@ void network_manager::broadcast_audio_data(const char* data, size_t count, int b
             }
         }
     });
+}
+
+void network_manager::add_broadcaster(std::shared_ptr<audio_broadcaster> broadcaster)
+{
+    std::lock_guard<std::mutex> lock(_broadcasters_mutex);
+    _additional_broadcasters.push_back(broadcaster);
+    spdlog::info("Added additional broadcaster, total: {}", _additional_broadcasters.size());
 }

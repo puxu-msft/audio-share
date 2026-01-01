@@ -30,10 +30,11 @@
 
 #include "buffer_pool.hpp"
 
+#include "audio_broadcaster.hpp"
 #include "audio_manager.hpp"
 #include "constants.hpp"
 
-class network_manager : public std::enable_shared_from_this<network_manager>
+class network_manager : public audio_broadcaster, public std::enable_shared_from_this<network_manager>
 {
     using default_token = asio::as_tuple_t<asio::use_awaitable_t<>>;
     using tcp_acceptor = default_token::as_default_on_t<asio::ip::tcp::acceptor>;
@@ -96,7 +97,13 @@ private:
     void fill_udp_peer(int id, asio::ip::udp::endpoint udp_peer);
 
 public:
-    void broadcast_audio_data(const char* data, size_t count, int block_align);
+    void broadcast_audio_data(const char* data, size_t count, int block_align) override;
+    
+    /**
+     * @brief Register an additional broadcaster to receive audio data
+     * @param broadcaster Shared pointer to the broadcaster
+     */
+    void add_broadcaster(std::shared_ptr<audio_broadcaster> broadcaster);
     
     std::shared_ptr<asio::io_context> _ioc;
 
@@ -108,6 +115,8 @@ private:
     mutable std::mutex _peer_list_mutex;  // Protects _playing_peer_list
     constexpr static auto _heartbeat_timeout = audio_share::constants::HEARTBEAT_TIMEOUT;
     std::unique_ptr<audio_share::buffer_pool> _buffer_pool;  // Buffer pool for UDP packets
+    std::vector<std::shared_ptr<audio_broadcaster>> _additional_broadcasters;  // Additional broadcasters (e.g., WebSocket)
+    mutable std::mutex _broadcasters_mutex;  // Protects _additional_broadcasters
 };
 
 #endif // !NETWORK_MANAGER_HPP

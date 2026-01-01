@@ -1,6 +1,7 @@
 #include "config.h"
 #include "audio_manager.hpp"
 #include "network_manager.hpp"
+#include "websocket_manager.hpp"
 #include "constants.hpp"
 
 #include <cxxopts.hpp>
@@ -29,6 +30,7 @@ int main(int argc, char* argv[])
         ("h,help", "Print usage")
         ("l,list-endpoint", "List available endpoints")
         ("b,bind", "The server bind address. If not set, will use default", cxxopts::value<string>()->implicit_value(default_address), "[host][:<port>]")
+        ("w,websocket-port", "WebSocket server port for web browser clients (default: main port + 1)", cxxopts::value<int>()->default_value("0"), "[port]")
         ("e,endpoint", "Specify the endpoint id. If not set or set \"default\", will use default", cxxopts::value<string>()->default_value("default"), "[endpoint]")
         ("encoding", "Specify the capture encoding. If not set or set \"default\", will use default", cxxopts::value<audio_manager::encoding_t>()->default_value("default"), "[encoding]")
         ("list-encoding", "List available encoding")
@@ -140,8 +142,22 @@ int main(int argc, char* argv[])
 
             auto network_manager = std::make_shared<class network_manager>(audio_manager);
 
+            // Start WebSocket server for web clients
+            auto ws_manager = std::make_shared<class websocket_manager>(audio_manager);
+            int ws_port_val = result["websocket-port"].as<int>();
+            uint16_t ws_port = (ws_port_val > 0 && ws_port_val <= MAX_PORT) 
+                ? static_cast<uint16_t>(ws_port_val) 
+                : static_cast<uint16_t>(port + 1);
+            
+            spdlog::info("Starting WebSocket server on {}:{}", host, ws_port);
+            ws_manager->start_server(host, ws_port, capture_config);
+            
+            // Register WebSocket manager as additional broadcaster
+            network_manager->add_broadcaster(ws_manager);
+
             network_manager->start_server(host, port, capture_config);
             network_manager->wait_server();
+            ws_manager->stop_server();
 
             return EXIT_SUCCESS;
         }
